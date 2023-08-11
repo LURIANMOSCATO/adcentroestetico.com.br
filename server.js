@@ -15,7 +15,7 @@ const db = mysql.createConnection({
 });
 
 app.get('/', (req, res) =>{
-    const sql = "SELECT id, upper(cliente) AS cliente, telefone, upper(profissional) AS profissional, lower(servico) AS servico, DATE_FORMAT(dataNascimento, '%d/%m/%Y') AS dataNascimento, DATE_FORMAT(dataServico, '%d/%M/%Y') AS dataServico, TIME_FORMAT(hora, '%Hh: %im') as hora, tempo, CONCAT('R$ ', FORMAT((valor), 2, 'pt_BR')) as valor, upper(gestante) AS gestante, upper(alergica) AS alergica, lower(alergia) AS alergia FROM agenda ORDER BY month(dataServico), day(dataServico), time(hora)";
+    const sql = "SELECT id, upper(cliente) AS cliente, telefone, upper(profissional) AS profissional, lower(servico) AS servico, DATE_FORMAT(dataNascimento, '%d/%m/%Y') AS dataNascimento, DATE_FORMAT(dataServico, '%d/%M/%Y') AS dataServico, TIME_FORMAT(hora, '%Hh: %im') as hora, tempo, upper(pagamento) as pagamento, CONCAT('R$ ', FORMAT((valor), 2, 'pt_BR')) as valor, upper(gestante) AS gestante, upper(alergica) AS alergica, lower(alergia) AS alergia FROM agenda ORDER BY month(dataServico), day(dataServico), time(hora)";
     db.query(sql, (err, result) =>{
         if(err) return res.json({Message: "Error inside server"});
         return res.json(result);
@@ -23,7 +23,7 @@ app.get('/', (req, res) =>{
 });
 
 app.post('/record_client', (req, res) =>{
-    const sql = "INSERT INTO agenda (`cliente`, `telefone`, `profissional`, `servico`, `dataNascimento`, `dataServico`, `hora`, `tempo`, `valor`, `gestante`, `alergica`, `alergia`) VALUES (?)";
+    const sql = "INSERT INTO agenda (`cliente`, `telefone`, `profissional`, `servico`, `dataNascimento`, `dataServico`, `hora`, `tempo`, `pagamento`, `valor`, `gestante`, `alergica`, `alergia`) VALUES (?)";
     console.log(req.body)
     const values = [
         req.body.cliente,
@@ -34,6 +34,7 @@ app.post('/record_client', (req, res) =>{
         req.body.dataServico,
         req.body.hora,
         req.body.tempo,
+        req.body.pagamento,
         req.body.valor,
         req.body.gestante,
         req.body.alergica,
@@ -242,6 +243,18 @@ app.post('/finalizar_venda', (req, res) => {
         return res.status(500).json({ error: 'Erro ao inserir os produtos vendidos no banco de dados.' });
       }
 
+      produtos.forEach((produto) => {
+        const sqlUpdateEstoque = `UPDATE produto SET quantidadeProduto = quantidadeProduto - ${produto.quantidade} WHERE idProduto = ${produto.produto_id};`;
+        db.query(sqlUpdateEstoque, (err) => {
+          if (err) {
+            console.error('Erro ao atualizar o estoque:', err);
+            db.rollback(() => {
+              res.status(500).json({ error: 'Erro ao atualizar o estoque.' });
+            });
+          }
+        });
+      });
+
       res.status(200).json({ message: 'Venda finalizada com sucesso!' });
     });
   });
@@ -286,7 +299,16 @@ app.get('/vendasrealizadas/', (req, res) =>{
 });
 
 app.get('/servicosrealizados/', (req, res) =>{
-  const sql = "SELECT id, upper(cliente) as cliente, upper(profissional) as profissional, CONCAT('R$ ', FORMAT((valor), 2, 'pt_BR')) as valor, DATE_FORMAT(dtNascimento, '%d/%m/%Y') as dtNascimento FROM realizados";
+  const sql = "SELECT id, upper(cliente) as cliente, upper(profissional) as profissional, CONCAT('R$ ', FORMAT((valor), 2, 'pt_BR')) as valor, DATE_FORMAT(dtNascimento, '%d/%m/%Y') as dtNascimento FROM realizados ORDER BY id DESC";
+
+  db.query(sql, (err, result) =>{
+      if(err) return res.json({Message: "Error inside server"});
+      return res.json(result);
+  });
+});
+
+app.get('/servicos/', (req, res) =>{
+  const sql = "SELECT * FROM servico";
 
   db.query(sql, (err, result) =>{
       if(err) return res.json({Message: "Error inside server"});
