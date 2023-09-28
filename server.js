@@ -1,25 +1,59 @@
 import express  from "express";
 import mysql from 'mysql2';
 import cors from 'cors';
-
+import bcrypt, { hash } from 'bcrypt'
+import cookieParser from "cookie-parser";
+const salt = 10;
+import jwt from 'jsonwebtoken';
 const app = express();
+app.use(cookieParser());
 app.use(express.json());
-app.use(cors());
+app.use(cors(
+  {
+      origin: ["http://localhost:3000"],
+      methods: ["POST", "GET", "PUT", "DELETE"],
+      credentials: true
+  }
+));
 
 const db = mysql.createConnection({
-    host: "localhost",
-    port: "3307",
-    user: "admin",
-    password: "admin",
-    database: "centro_estetico"
+        host: "localhost",
+        port: "3307",
+        user: "admin",
+        password: "admin",
+        database: "centro_estetico"
 });
 
 app.get('/', (req, res) =>{
-    const sql = "SELECT id, upper(cliente) AS cliente, telefone, upper(profissional) AS profissional, lower(servico) AS servico, DATE_FORMAT(dataNascimento, '%d/%m/%Y') AS dataNascimento, DATE_FORMAT(dataServico, '%d/%M/%Y') AS dataServico, TIME_FORMAT(hora, '%Hh: %im') as hora, tempo, upper(pagamento) as pagamento, CONCAT('R$ ', FORMAT((valor), 2, 'pt_BR')) as valor, upper(gestante) AS gestante, upper(alergica) AS alergica, lower(alergia) AS alergia FROM agenda ORDER BY month(dataServico), day(dataServico), time(hora)";
+    const sql = "SELECT id, upper(cliente) AS cliente, CONCAT('(', SUBSTRING(telefone, 1, 2), ') ', SUBSTRING(telefone, 3, 5), '-', SUBSTRING(telefone, 8, 4)) as telefone, upper(profissional) AS profissional, lower(servico) AS servico, DATE_FORMAT(dataNascimento, '%d/%M/%Y') AS dataNascimento, DATE_FORMAT(dataServico, '%d/%M/%Y') AS dataServico, TIME_FORMAT(hora, '%Hh: %im') as hora, tempo, upper(pagamento) as pagamento, CONCAT('R$ ', FORMAT((valor), 2, 'pt_BR')) as valor, upper(gestante) AS gestante, upper(alergica) AS alergica, lower(alergia) AS alergia FROM agenda ORDER BY month(dataServico), day(dataServico), time(hora)";
     db.query(sql, (err, result) =>{
         if(err) return res.json({Message: "Error inside server"});
         return res.json(result);
     });
+});
+
+app.get('/agendas', (req, res) => {
+  const sql = "SELECT id, upper(cliente) AS cliente, servico, profissional, DATE_FORMAT(dataServico, '%d/%m/%Y') AS dataServico, TIME_FORMAT(hora, '%Hh: %im') as hora, CONCAT('R$ ', FORMAT((valor), 2, 'pt_BR')) as valor FROM agenda";
+  db.query(sql, (err, result) => {
+    if (err) {
+      console.error('Erro na consulta SQL:', err);
+      return res.status(500).json({ error: 'Erro ao buscar agendamentos.' });
+    }
+    return res.json(result);
+  });
+});
+
+
+app.get('/search', (req, res) => {
+  const { startDate, endDate } = req.query;
+
+  const sql = "SELECT * FROM agenda WHERE dataServico BETWEEN ? AND ?";
+  db.query(sql, [startDate, endDate], (err, result) => {
+      if (err) {
+          return res.json({ Message: "Error inside server" });
+      }
+      return res.json(result);
+  });
 });
 
 app.post('/record_client', (req, res) =>{
@@ -62,7 +96,7 @@ app.delete('/delete/:id', (req, res) => {
 
 app.post('/check/:id', (req, res) => {
     const sql =
-      "INSERT INTO realizados (`cliente`, `profissional`, `servico`, `valor`, `dtnascimento`) SELECT cliente, profissional, servico, valor, dataNascimento FROM agenda WHERE id = ?";
+      "INSERT INTO realizados (`cliente`, `profissional`, `servico`, `valor`,`pagamento`, `dtnascimento`) SELECT cliente, profissional, servico, valor, pagamento, dataNascimento FROM agenda WHERE id = ?";
     const id = req.params.id;
     db.query(sql, [id], (err, result) => {
       if (err) return res.json({ Error: "Erro ao Concluir Servico" });
@@ -120,7 +154,7 @@ app.get('/view/:id', (req, res) =>{
 });
 
 app.put('/update/:id', (req, res) => {
-  const sql = 'UPDATE agenda SET `cliente`=?, `telefone`=?, `profissional`=?, `servico`=?, `dataNascimento`=?, `dataServico`=?, `hora`=?, `tempo`=?, `valor`=?, `gestante`=?, `alergica`=?, `alergia`=? WHERE id =?';
+  const sql = 'UPDATE agenda SET `cliente`=?, `telefone`=?, `profissional`=?, `servico`=?, `dataNascimento`=?, `dataServico`=?, `hora`=?, `tempo`=?, `pagamento`=?, `valor`=?, `gestante`=?, `alergica`=?, `alergia`=? WHERE id =?';
   const id = req.params.id;
   db.query(sql, [req.body.cliente,
     req.body.telefone,
@@ -130,6 +164,7 @@ app.put('/update/:id', (req, res) => {
     req.body.dataServico,
     req.body.hora,
     req.body.tempo,
+    req.body.pagamento,
     req.body.valor,
     req.body.gestante,
     req.body.alergica,
@@ -175,6 +210,24 @@ app.get('/clientsmonth/', (req, res) =>{
     })
 })
 
+app.get('/clientsdeza/', (req, res) =>{
+  const sql = "SELECT COUNT(id) AS id FROM agenda WHERE profissional = 'ANDREZA'";
+  db.query(sql, (err, result) =>{
+      if(err) return res.json({ Message: "Erro na Consulta!"});
+      return res.json(result);
+  })
+})
+
+
+app.get('/clientsdaia/', (req, res) =>{
+  const sql = "SELECT COUNT(id) AS id FROM agenda WHERE profissional = 'DAIANE'";
+  db.query(sql, (err, result) =>{
+      if(err) return res.json({ Message: "Erro na Consulta!"});
+      return res.json(result);
+  })
+})
+
+
 
 app.get('/product_list', (req, res) =>{
     const sql = "SELECT idProduto, upper(tituloProduto) as tituloProduto, quantidadeProduto, FORMAT(valorProduto, 2, 'pt_BR') as valorProduto FROM produto WHERE quantidadeProduto > 0";
@@ -210,6 +263,47 @@ app.post('/register_product', (req, res) =>{
       }
   })
 })
+
+app.delete('/deletepdt/:id', (req, res) => {
+  const sql = "DELETE FROM produto WHERE idProduto = ?";
+  const id =  req.params.id;
+  db.query(sql, [id], (err, result) => {
+      if(err) return res.json({Error: "Erro ao deletar Linha"});
+      return res.json(result);
+  })
+})
+
+app.get('/viewproduct/:id', (req, res) =>{
+  const sql = "SELECT * FROM produto WHERE idProduto = ?";
+  const id = req.params.id;
+
+  db.query(sql,[id], (err, result) =>{
+      if(err) return res.json({Message: "Error inside server"});
+      return res.json(result);
+  });
+});
+
+app.put('/updatep/:id', (req, res) => {
+  const id = req.params.id; // Corrigido: obtendo o parâmetro 'id' corretamente
+
+  const sql = 'UPDATE produto SET `tituloProduto`=?, `quantidadeProduto`=?, `valorProduto`=? WHERE idProduto=?';
+  // Corrigido: Adicionando ponto de interrogação após `quantidadeProduto` e `valorProduto`
+
+  db.query(sql, [
+    req.body.tituloProduto,
+    req.body.quantidadeProduto,
+    req.body.valorProduto,
+    id
+  ], (err, result) => {
+    if (err) {
+      console.log(err);
+      return res.status(500).json({ error: 'Erro ao atualizar o produto.' });
+    }
+    return res.json(result);
+  });
+});
+
+
 /*Enviar venda para o DB */
 
 app.post('/finalizar_venda', (req, res) => {
@@ -221,46 +315,75 @@ app.post('/finalizar_venda', (req, res) => {
   }
 
   // Monta a consulta SQL para inserir a venda na tabela do banco de dados
-  const sqlInsert = `INSERT INTO vendas (total) VALUES (${total});`;
-  db.query(sqlInsert, (err, result) => {
+  const sqlInsertVenda = `INSERT INTO vendas (total) VALUES (${total});`;
+
+  db.beginTransaction((err) => {
     if (err) {
-      console.error('Erro ao inserir a venda no banco de dados:', err);
-      return res.status(500).json({ error: 'Erro ao inserir a venda no banco de dados.' });
+      console.error('Erro ao iniciar a transação:', err);
+      return res.status(500).json({ error: 'Erro ao finalizar a venda.' });
     }
 
-    const vendaId = result.insertId; // ID da venda inserida no banco
-
-    // Monta a consulta SQL para inserir os produtos vendidos na tabela do banco de dados
-    const sqlInsertProdutos = produtos.map(
-      (produto) => `INSERT INTO produtos_vendidos (venda_id, produto_id, titulo, quantidade, valor) 
-      VALUES (${vendaId}, ${produto.produto_id}, '${produto.titulo}', ${produto.quantidade}, ${produto.valor.replace(',', '.')});`
-    );
-
-    // Executa todas as consultas de inserção dos produtos em uma única transação
-    db.query(sqlInsertProdutos.join(' '), (err) => {
+    db.query(sqlInsertVenda, (err, result) => {
       if (err) {
-        console.error('Erro ao inserir os produtos vendidos no banco de dados:', err);
-        return res.status(500).json({ error: 'Erro ao inserir os produtos vendidos no banco de dados.' });
+        console.error('Erro ao inserir a venda no banco de dados:', err);
+        return db.rollback(() => {
+          res.status(500).json({ error: 'Erro ao finalizar a venda.' });
+        });
       }
 
-      produtos.forEach((produto) => {
-        const sqlUpdateEstoque = `UPDATE produto SET quantidadeProduto = quantidadeProduto - ${produto.quantidade} WHERE idProduto = ${produto.produto_id};`;
-        db.query(sqlUpdateEstoque, (err) => {
+      const vendaId = result.insertId; // ID da venda inserida no banco
+
+      // Monta a consulta SQL para inserir os produtos vendidos na tabela do banco de dados
+      const values = produtos.map(
+        (produto) => `(${vendaId}, ${produto.produto_id}, '${produto.titulo}', ${produto.quantidade}, ${produto.valor.replace(',', '.')})`
+      ).join(', ');
+      console.log('produtos a inserir', values)
+
+       const sqlInsertProdutos = `INSERT INTO produtos_vendidos (venda_id, produto_id, titulo, quantidade, valor) 
+        VALUES ${values}
+        ON DUPLICATE KEY UPDATE venda_id = VALUES(venda_id), quantidade = quantidade + VALUES(quantidade);`;
+
+      db.query(sqlInsertProdutos, (err) => {
+        if (err) {
+          console.error('Erro ao inserir os produtos vendidos no banco de dados:', err);
+          return db.rollback(() => {
+            res.status(500).json({ error: 'Erro ao finalizar a venda.' });
+          });
+        }
+
+        produtos.forEach((produto) => {
+          const sqlUpdateEstoque = `UPDATE produto SET quantidadeProduto = quantidadeProduto - ${produto.quantidade} WHERE idProduto = ${produto.produto_id};`;
+          db.query(sqlUpdateEstoque, (err) => {
+            if (err) {
+              console.error('Erro ao atualizar o estoque:', err);
+              return db.rollback(() => {
+                res.status(500).json({ error: 'Erro ao atualizar o estoque.' });
+              });
+            }
+          });
+        });
+
+        // Commit da transação
+        db.commit((err) => {
           if (err) {
-            console.error('Erro ao atualizar o estoque:', err);
+            console.error('Erro ao efetuar o commit da transação:', err);
             db.rollback(() => {
-              res.status(500).json({ error: 'Erro ao atualizar o estoque.' });
+              res.status(500).json({ error: 'Erro ao finalizar a venda.' });
             });
+          } else {
+            res.status(200).json({ message: 'Venda finalizada com sucesso!' });
           }
         });
       });
-
-      res.status(200).json({ message: 'Venda finalizada com sucesso!' });
     });
   });
 });
 
+
 /*Enviar venda para o DB */
+
+
+
 
 app.get('/vendas/', (req, res) =>{
   const sql = "SELECT CONCAT('R$ ', FORMAT(SUM(total), 2, 'pt_BR')) as total FROM vendas WHERE DATE(register_datetime) = CURDATE()";
@@ -272,7 +395,25 @@ app.get('/vendas/', (req, res) =>{
 });
 
 app.get('/vendastotal/', (req, res) =>{
-  const sql = "SELECT CONCAT('R$ ', FORMAT(SUM(total), 2, 'pt_BR')) as total FROM vendas";
+  const sql = "SELECT CONCAT('R$ ', FORMAT(SUM(total), 2, 'pt_BR')) as total FROM vendas WHERE MONTH(register_datetime) = MONTH(CURDATE())";
+
+  db.query(sql, (err, result) =>{
+      if(err) return res.json({Message: "Error inside server"});
+      return res.json(result);
+  });
+});
+
+app.get('/vendastotalw/', (req, res) =>{
+  const sql = "SELECT CONCAT('R$ ', FORMAT(SUM(total), 2, 'pt_BR')) as total FROM vendas WHERE WEEK(register_datetime) = WEEK(CURDATE())";
+
+  db.query(sql, (err, result) =>{
+      if(err) return res.json({Message: "Error inside server"});
+      return res.json(result);
+  });
+});
+
+app.get('/vendastotald/', (req, res) =>{
+  const sql = "SELECT CONCAT('R$ ', FORMAT(SUM(total), 2, 'pt_BR')) as total FROM vendas WHERE DAY(register_datetime) = DAY(CURDATE())";
 
   db.query(sql, (err, result) =>{
       if(err) return res.json({Message: "Error inside server"});
@@ -299,7 +440,7 @@ app.get('/vendasrealizadas/', (req, res) =>{
 });
 
 app.get('/servicosrealizados/', (req, res) =>{
-  const sql = "SELECT id, upper(cliente) as cliente, upper(profissional) as profissional, CONCAT('R$ ', FORMAT((valor), 2, 'pt_BR')) as valor, DATE_FORMAT(dtNascimento, '%d/%m/%Y') as dtNascimento FROM realizados ORDER BY id DESC";
+  const sql = "SELECT id, upper(cliente) as cliente, upper(profissional) as profissional, CONCAT('R$ ', FORMAT((valor), 2, 'pt_BR')) as valor, pagamento, DATE_FORMAT(dtCheck, '%d/%m/%Y') as dtCheck FROM realizados ORDER BY id DESC";
 
   db.query(sql, (err, result) =>{
       if(err) return res.json({Message: "Error inside server"});
@@ -316,9 +457,33 @@ app.get('/servicos/', (req, res) =>{
   });
 });
 
+app.post('/register_servico', (req, res) =>{
+  const sql = "INSERT INTO servico (`tituloServico`) VALUES (?)";
+  console.log(req.body)
+  const values = [
+      req.body.tituloServico,
+  ]
+  db.query(sql, [values], (err, result) =>{
+      if(!err) {
+          res.status(200).json({success: "Produto Cadastrado."});
+      } else {
+          console.log(err);
+      }
+  })
+})
+
+app.delete('/deleteservico/:id', (req, res) => {
+  const sql = "DELETE FROM servico WHERE id = ?";
+  const id =  req.params.id;
+  db.query(sql, [id], (err, result) => {
+      if(err) return res.json({Error: "Erro ao deletar Linha"});
+      return res.json(result);
+  })
+})
+
 
 app.get('/faturatendimentos/', (req, res) =>{
-  const sql = "SELECT  CONCAT('R$ ', FORMAT(SUM(valor), 2, 'pt_BR')) as valor FROM realizados";
+  const sql = "SELECT  CONCAT('R$ ', FORMAT(SUM(valor), 2, 'pt_BR')) as valor FROM realizados WHERE MONTH(dtCheck) = MONTH(CURDATE())";
 
   db.query(sql, (err, result) =>{
       if(err) return res.json({Message: "Error inside server"});
@@ -326,6 +491,171 @@ app.get('/faturatendimentos/', (req, res) =>{
   });
 });
 
+app.get('/faturatendimentosemana/', (req, res) =>{
+  const sql = "SELECT  CONCAT('R$ ', FORMAT(SUM(valor), 2, 'pt_BR')) as valor FROM realizados WHERE WEEK(dtCheck) = WEEK(CURDATE())";
+
+  db.query(sql, (err, result) =>{
+      if(err) return res.json({Message: "Error inside server"});
+      return res.json(result);
+  });
+});
+
+
+app.get('/faturatendimentosdia/', (req, res) =>{
+  const sql = "SELECT  CONCAT('R$ ', FORMAT(SUM(valor), 2, 'pt_BR')) as valor FROM realizados WHERE DATE(dtCheck) = CURDATE()";
+
+  db.query(sql, (err, result) =>{
+      if(err) return res.json({Message: "Error inside server"});
+      return res.json(result);
+  });
+});
+
+app.get('/pix/', (req, res) =>{
+  const sql = "SELECT  CONCAT('R$ ', FORMAT(SUM(valor), 2, 'pt_BR')) as valor FROM realizados WHERE MONTH(dtCheck) = MONTH(CURDATE()) AND pagamento = 'PIX' ";
+
+  db.query(sql, (err, result) =>{
+      if(err) return res.json({Message: "Error inside server"});
+      return res.json(result);
+  });
+});
+
+app.get('/dinheiro/', (req, res) =>{
+  const sql = "SELECT  CONCAT('R$ ', FORMAT(SUM(valor), 2, 'pt_BR')) as valor FROM realizados WHERE MONTH(dtCheck) = MONTH(CURDATE()) AND pagamento = 'DINHEIRO' ";
+
+  db.query(sql, (err, result) =>{
+      if(err) return res.json({Message: "Error inside server"});
+      return res.json(result);
+  });
+});
+
+app.get('/credito/', (req, res) =>{
+  const sql = "SELECT  CONCAT('R$ ', FORMAT(SUM(valor), 2, 'pt_BR')) as valor FROM realizados WHERE MONTH(dtCheck) = MONTH(CURDATE()) AND pagamento = 'CRÉDITO' ";
+
+  db.query(sql, (err, result) =>{
+      if(err) return res.json({Message: "Error inside server"});
+      return res.json(result);
+  });
+});
+
+app.get('/debito/', (req, res) =>{
+  const sql = "SELECT  CONCAT('R$ ', FORMAT(SUM(valor), 2, 'pt_BR')) as valor FROM realizados WHERE MONTH(dtCheck) = MONTH(CURDATE()) AND pagamento = 'DÉBITO' ";
+
+  db.query(sql, (err, result) =>{
+      if(err) return res.json({Message: "Error inside server"});
+      return res.json(result);
+  });
+});
+
+
+
+/*
+
+const verifyUser = (req, res, next) => {
+  const token = req.cookies.token;
+  if(!token) {
+    return res.json({Message: "Faça Login p/ Acessar!"})
+  } else {
+    jwt.verify(token, "our-jsonwebtoken-secret-key", (err, decoded) => {
+      if(err) {
+        return res.json({Message: "Erro ao Logar, Verifique o seu login!"})
+      } else {
+        req.name = decoded.name;
+        next();
+      }
+    })
+  }
+}
+
+app.get('/vrf',verifyUser, (req, res) => {
+  return res.json({status: "Success", name: req.name})
+})
+
+app.post('/login', (req, res) => {
+  const sql = "SELECT * FROM `log-in` WHERE login = ? AND password = ?";
+  db.query(sql, [req.body.login, req.body.password], (err, data) =>{
+    if(err) return res.json({Message: "Server side error."});
+    if(data.length > 0) {
+      const name = data[0].name;
+      const token = jwt.sign({name}, "our-jsonwebtoken-secret-key", {expiresIn: '12h'});
+      res.cookie('token', token);
+      return res.json({status: "Success"})
+    }else {
+      return res.json({Message: "Login Incorreto!"});
+    }
+  })
+})
+
+app.get('/logout', (req, res) => {
+  res.clearCookie('token');
+  return res.json({ status: "Success" });
+});
+
+
+
+*/
+
+
+app.post('/newuser', (req, res) => {
+  const sql = "INSERT INTO login (`name`,`user`,`password`) VALUES (?)";
+  bcrypt.hash(req.body.password.toString(), salt, (err, hash) => {
+    if(err) return res.json({Error: "Erro ao Criar a Senha "});
+    const values = [
+      req.body.name,
+      req.body.user,
+      hash
+    ]
+    db.query(sql, [values], (err, result) => {
+      if(err) return res.json({Error: "Erro ao inserir senha no banco"});
+      return res.json({Status: "Success"});
+    })
+  })
+})
+
+const verifyUser = (req, res, next) =>{
+  const token = req.cookies.token;
+  if(!token) {
+    return res.json({Error: "Não autorizado!"});
+  } else {
+    jwt.verify(token, "jwt-secret-key", (err, decoded) => {
+      if(err) {
+        return res.json({Error: "Token de sessão Inválido!"});
+      } else {
+        req.name = decoded.name;
+        next();
+      }
+    })
+  }
+}
+app.get('/verify/', verifyUser, (req, res) =>{
+  return res.json({Status: "Success", name: req.body.name});
+})
+
+app.post('/login', (req, res) => {
+  const sql = "SELECT * FROM login WHERE user = ?";
+  db.query(sql, [req.body.user], (err, data) => {
+    if(err) return res.json({Error: "Erro ao Logar!"});
+    if (data.length > 0) {
+      bcrypt.compare(req.body.password.toString(), data[0].password, (err, response) => {
+        if(err) return res.json({Error: "Senha inválida!"});
+        if(response) {
+          const name = data[0].name;
+          const token = jwt.sign({name}, "jwt-secret-key", {expiresIn: '12h'});
+          res.cookie('token', token)
+          return res.json({Status: "Success"});
+        } else {
+          return res.json({Error: "Senha não confere"});
+        }
+      })
+    } else {
+      return res.json({Error: "Usuário Inválido!"});
+    }
+  })
+})
+
+app.get('/logout', (req, res) =>{
+  res.clearCookie('token');
+  return res.json({Status: "Success"});
+})
 
 
 app.listen(8081, ()=>{
