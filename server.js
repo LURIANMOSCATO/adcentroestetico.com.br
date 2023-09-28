@@ -10,18 +10,18 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(cors(
   {
-      origin: ["http://localhost:3000"],
+      origin: ["http://gestao-centroestetico.jelastic.saveincloud.net"],
       methods: ["POST", "GET", "PUT", "DELETE"],
       credentials: true
   }
 ));
 
 const db = mysql.createConnection({
-        host: "localhost",
-        port: "3307",
-        user: "admin",
-        password: "admin",
-        database: "centro_estetico"
+    host: "node147581-login-adce.jelastic.saveincloud.net",
+    port: "3306",
+    user: "root",
+    password: "GBAfcr40559",
+    database: "centro_estetico"
 });
 
 app.get('/', (req, res) =>{
