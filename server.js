@@ -10,7 +10,7 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(cors(
   {
-      origin: ["http://gestao-centroestetico.jelastic.saveincloud.net"],
+      origin: ["centroesteticoad.jelastic.saveincloud.net"],
       methods: ["POST", "GET", "PUT", "DELETE"],
       credentials: true
   }
