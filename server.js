@@ -17,10 +17,10 @@ app.use(cors(
 ));
 
 const db = mysql.createConnection({
-    host: "node147581-login-adce.jelastic.saveincloud.net",
+    host: "node153410-apis-backend.jelastic.saveincloud.net",
     port: "3306",
     user: "root",
-    password: "GBAfcr40559",
+    password: "TKDcoz89826",
     database: "centro_estetico"
 });
 
